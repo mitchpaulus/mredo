@@ -1,0 +1,362 @@
+#!/usr/bin/env mshell
+
+# msg_() {
+#   level_="$1: "
+#   shift
+#   case "$level_" in
+#     info*) level_=
+#   esac
+#   echo "redo-ifchange: ${level_}$@" 1>&2
+#   case "$level_" in
+#     error*) exit 111 ;;
+#   esac
+# }
+
+def msg (str str --)
+    message! level!
+    @level "info" startsWith ("" level!) iff
+    $"redo-ifchange: {@level}{@message}" wle
+    @level "error" startsWith (111 exit) iff
+end
+
+# record_() {
+  # echo "$1" > .redo/"$2"'{new}'
+  # mv .redo/"$2"'{new}' .redo/"$2"
+# }
+
+# record (content filename --)
+def record (str str --)
+    name!
+    $"./.redo/{@name}[new]" writeFile
+    $"./.redo/{@name}[new]" $"./.redo/{@name}" mv
+end
+
+# record_prereq_() {
+  # case "$REDOPARENT" in
+    # '') : ;;
+    # *)
+      # ( if [ ! -e .redo/"$REDOPARENT.prereqs.build" ]; then
+          # echo "$1"
+        # elif ! grep "$1" .redo/"$REDOPARENT.prereqs.build" >/dev/null 2>/dev/null; then
+          # cat .redo/"$REDOPARENT.prereqs.build"
+          # echo "$1"
+        # fi
+      # ) > .redo/"$REDOPARENT.prereqs.build"'{new}'
+      # mv .redo/"$REDOPARENT.prereqs.build"'{new}' .redo/"$REDOPARENT.prereqs.build"
+      # ;;
+  # esac
+# }
+
+def recordPrereq (str --)
+    prereq!
+    $".redo/{$REDOPARENT}.prereqs.build" prereqBuild!
+
+    $REDOPARENT? (
+        $REDOPARENT '' != (
+            (
+                @prereqBuild isFile
+                (
+                    @prereqBuild readFile lines
+                    (l! @l @prereq =) filter len 0 (@prereqBuild readFile w) iff
+                )
+                iff
+                @prereq wl
+            ) $"{@prereqBuild}[new]" > x
+            $"{@prereqBuild}[new]"$ @prereqBuild mv
+        ) iff
+    ) iff
+end
+
+def handleTarget (str --)
+    target!
+    $".redo/{@target dirname}" mkdirp
+
+    $".redo/{@target}.uptodate" isFile
+    (@target recordPrereq)
+    (
+        # Determine file type
+        $".redo/{@target}.type" isFile
+        ($".redo/{@target}.type" readFile trim type!)
+        (
+            @target isFile ("s") ("t") iff type!
+            @type $"{@target}.type" record
+        ) iff
+
+
+        "n" upToDate!
+        @type "s" =
+        (
+            # Check MD5 checksum
+            @target isFile (
+                @target toPath md5 newMd5!
+                $".redo/{@target}.md5" isFile (
+                    $".redo/{@target}.md5" readFile trim oldMd5!
+                    @newmd5 @oldmd5 = ("y" @uptodate) iff
+                )
+                (
+                    $".redo/{@target}.nonexist" isFile ($".redo/{@target}.nonexist" rm) iff
+                )
+                iff
+                @newmd5 $"{@target}.md5" record
+            ) iff
+
+            @uptodate $"{@target}.uptodate" record
+            @target recordPrereq
+        )
+        (
+            # Must be regular target file
+            $".redo/{@target}.prereqs" isFile
+            (
+                "y" uptodate!
+                $".redo/{@target}.prereqs" readFile lines
+                (
+                    line!
+                    true continue!
+                    @target $REDOPARENT! [redo-ifchange.msh @line]? not ($"{@target}: failed to build prerequisite {@line}" 'error' msg) iff
+
+                    $".redo/{@line}.uptodate" isFile
+                    ( $".redo/{@line}.uptodate" readFile trim "n" = (false continue!) iff )
+                    ( "ASSERT" $"{@target}: no uptodate file for {@line}" msg 111 exit )
+                    iff
+                    @continue
+                )
+                eachWhile
+
+            )
+            iff
+
+            # Check nonexistent prerequisites
+            $".redo/{@target}.prereqsne" isFile
+            (
+                $".redo/{@target}.prereqsne" readFile lines
+                (isFile ("n" uptodate!) iff) each
+            ) iff
+
+            @uptodate "n" = (
+                # Remove old prerequisites
+                $".redo/{@target}.prereqs" rmf
+                $".redo/{@target}.prereqsnonexist" rmf
+
+                # Determine which build script to execute (rebuild it if necessary)
+                $"{@target}.do" isFile
+                (
+                    @target $REDOPARENT! [redo-ifchange.msh $"{@target}.do"];
+                    $"{@target}.do" buildFile!
+                )
+                (
+                    $"{@target dirname}/default{@target ext}.do" defaultFile!
+                    @defaultFile isFile (
+                        @target $REDOPARENT! [redo-ifchange.msh @defaultFile];
+                        # @target $REDOPARENT! [redo-ifcreate.msh $"{@target}.do"];
+                        @defaultFile buildFile!
+                    ) ("error" $"No build script found" message) iff
+                )
+                iff
+                $"{@target}.tmpfile" toPath outFile!
+                $"{@target}.tmpfile.stdout" toPath stdoutFile!
+
+                # Execute the build script
+                @target $REDOPARENT!
+                [msh
+                    @buildFile
+                    @target
+                    @target stem
+                    @outFile
+                ] @stdoutFile > ? result!
+
+                @outFile fileSize 0 maybe outfileSize!
+                @stdoutFile fileSize 0 maybe stdoutSize!
+                # You should not write to stdout and $3 at the same time
+                @outfileSize 0 > @stdoutSize 0 > and (255 result!) iff
+
+                @result $"{@target}.result" record
+
+                @result
+                (
+                    @outfileSize 0 > (@stdoutFile @outFile) (@outFile @stdoutFile) iff usedFile! nonUsedFile!
+                    @usedFile md5 newMd5!
+                    $".redo/{@target}.md5" isFile
+                    (
+                        $".redo/{@target}.md5" readFile trim oldMd5!
+                        @newmd5 @oldmd5 = ("y" uptodate!) iff
+                    )
+                    iff
+                    @usedFile @target mv
+                    @newmd5 $".redo/{@target}.md5" record
+                    "info" $"rebuilt {@target}" msg
+                    @nonUsedFile rmf
+                )
+                (
+                    @usedFile rmf
+                    @nonUsedFile rmf
+                    "error" $"failed to rebuild {@target}" msg
+                )
+                iff
+
+
+
+            ) iff
+
+            $".redo/{@target}.prereqs.build" isFile ($".redo/{@target}.prereqs.build"  $".redo/{@target}.prereqs" mv) iff
+            $".redo/{@target}.prereqsne.build" isFile ($".redo/{@target}.prereqsne.build"  $".redo/{@target}.prereqsne" mv) iff
+
+            @target recordPrereq
+            @uptodate $"{@target}.uptodate" record
+        )
+        iff
+    )
+    iff
+end
+
+args (handleTarget) each
+
+# for i in "$@"; do
+  # [ -d .redo/"`dirname $i`" ] || mkdir .redo/"`dirname $i`"
+
+  # if [ -e .redo/"$i.uptodate" ]; then
+    # record_prereq_ "$i"
+    # continue
+  # fi
+
+  # # Determine file type
+  # if [ -e .redo/"$i.type" ]; then
+    # type=`head -1 .redo/"$i.type"`
+  # else
+    # if [ -e "$i" ]; then
+      # type=s
+    # else
+      # type=t
+    # fi
+    # record_ "$type" "$i.type"
+  # fi
+
+  # uptodate=n
+  # case "$type" in
+    # s)
+      # # Check MD5 checksum
+      # if [ -e "$i" ]; then
+        # newmd5=`md5sum "$i" | awk '{print $1}'`
+        # if [ -e .redo/"$i.md5" ]; then
+          # oldmd5=`head -1 .redo/"$i.md5"`
+          # if [ "$newmd5" = "$oldmd5" ]; then
+            # uptodate=y
+          # fi
+        # elif [ -e .redo/"$i.nonexist" ]; then
+          # rm -f .redo/"$i.nonexist"
+        # fi
+        # record_ "$newmd5" "$i.md5"
+      # fi
+      # #case "$uptodate" in
+      # #  n) msg_ info "out-of-date source $i" ;;
+      # #  *) msg_ info "up-to-date source $i" ;;
+      # #esac
+      # record_ "$uptodate" "$i.uptodate"
+      # record_prereq_ "$i"
+      # continue
+      # ;;
+  # esac
+
+  # ### Must be a target file
+
+  # # Check regular prerequisites
+  # if [ -e .redo/"$i.prereqs" ]; then
+    # uptodate=y
+    # while read -r line; do
+      # if [ ! -e .redo/"$line.uptodate" ]; then
+        # env REDOPARENT="$i" redo-ifchange "$line"
+      # fi
+      # # Check for build errors
+      # if [ -e .redo/"$line.result" ]; then
+        # case `head -1 .redo/"$line.result"` in
+          # 0) : ;;
+          # *) msg_ error "$i: failed to rebuild prerequisite $line" ;;
+        # esac
+      # fi
+
+      # if [ -e .redo/"$line.uptodate" ]; then
+        # case `head -1 .redo/"$line.uptodate"` in
+          # n)
+            # uptodate=n
+            # break
+            # ;;
+        # esac
+      # else
+        # msg_ ASSERT: "$i: no uptodate file for $line" 1>&2
+        # exit 111
+      # fi
+    # done < .redo/"$i.prereqs"
+  # fi
+
+  # # Check nonexistent prerequisites
+  # if [ -e .redo/"$i.prereqsne" ]; then
+    # while read -r line; do
+      # if [ -e "$line" ]; then
+        # uptodate=n
+      # fi
+    # done < .redo/"$i.prereqsne"
+  # fi
+
+  # case "$uptodate" in
+    # n)
+      # # Remove old prerequisites
+      # rm -f .redo/"$i.prereqs"
+      # rm -f .redo/"$i.prereqsnonexist"
+      # # Determine which build script to execute (rebuild it if necessary)
+      # if [ -e "$i.do" ]; then
+        # env REDOPARENT="$i" redo-ifchange "$i.do"
+        # buildfile="$i.do"
+      # else
+        # default=`echo "$i" | sed 's/.*\(\.[^\.]*\)$/default\1/'`
+        # if [ -e "$default.do" ]; then
+          # env REDOPARENT="$i" redo-ifchange "$default.do"
+          # env REDOPARENT="$i" redo-ifcreate "$i.do"
+          # buildfile="$default.do"
+        # else
+          # msg_ error "$i: no build script found"
+        # fi
+      # fi
+      # # Execute the build script
+      # basefile=`echo "$i" | sed 's/\..*$//'`
+      # env REDOPARENT="$i" \
+      # sh -e "$buildfile" 0 "$basefile" .redo/"$i---redoing" \
+      # > .redo/"$i---redoing"
+      # result="$?"
+      # record_ "$result" "$i.result"
+      # case "$result" in
+        # 0)
+          # newmd5=`md5sum .redo/"$i---redoing" | awk '{print $1}'`
+          # if [ -e .redo/"$i.md5" ]; then
+            # oldmd5=`head -1 .redo/"$i.md5"`
+            # case "$newmd5" in
+              # "$oldmd5")
+                # rm -f .redo/"$i---redoing"
+                # uptodate=y  # No change
+                # ;;
+              # *)
+                # mv .redo/"$i---redoing" "$i"
+                # record_ "$newmd5" "$i.md5"
+                # ;;
+            # esac
+          # else
+            # mv .redo/"$i---redoing" "$i"
+            # record_ "$newmd5" "$i.md5"
+          # fi
+          # msg_ info "rebuilt $i" 1>&2
+          # ;;
+        # *)
+          # rm -f .redo/"$i---redoing"
+          # msg_ error "failed to rebuild $i"
+          # ;;
+      # esac
+      # ;;
+  # esac
+
+  # if [ -e .redo/"$i.prereqs.build" ]; then
+    # mv .redo/"$i.prereqs.build" .redo/"$i.prereqs"
+  # fi
+  # if [ -e .redo/"$i.prereqsne.build" ]; then
+    # mv .redo/"$i.prereqsne.build" .redo/"$i.prereqsne"
+  # fi
+  # record_prereq_ "$i"
+  # record_ "$uptodate" "$i.uptodate"
+# done
