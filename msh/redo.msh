@@ -13,10 +13,10 @@
 # find .redo -name '*.prereqsne.build' -exec rm -f '{}' \;
 # redo-ifchange it
 
-def toRm (str--str)
+def toRm (str -- str)
   glob! ['fd' @glob `.redo`] o ! (rm) each
 end
 
 `.redo` mkdirp
-[ '^.*.uptodate$' '^.*.prereqs.build$' '^.*.prereqsne.build$' ] (toRm) each
-['redo-ifchange.msh' 'it']!
+[ '^.*.uptodate$' '^.*.prereqs.build$' '^.*.prereqsne.build$' '^.*type$' ] (toRm) each
+['redo-ifchange.msh' args :0:]!

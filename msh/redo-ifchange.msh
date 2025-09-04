@@ -15,7 +15,7 @@
 def msg (str str --)
     message! level!
     @level "info" startsWith ("" level!) iff
-    $"redo-ifchange: {@level}{@message}" wle
+    $"redo-ifchange: {@level} {@message}" wle
     @level "error" startsWith (111 exit) iff
 end
 
@@ -27,8 +27,58 @@ end
 # record (content filename --)
 def record (str str --)
     name!
-    $"./.redo/{@name}[new]" writeFile
-    $"./.redo/{@name}[new]" $"./.redo/{@name}" mv
+    $"./.redo/{@name}%new%" writeFile
+    $"./.redo/{@name}%new%" $"./.redo/{@name}" mv
+end
+
+# findDoFile (str:target -- Maybe str)
+def findDoFile (str -- str)
+  target!
+  $"{@target}.do" isFile
+  ($"{@target}.do" just)
+  (
+      none doFile!
+      @target dirname absPath dir!
+      @target basename getTestFiles files!
+      @files
+      (
+        f! @dir @f tryAllParentDirs result!
+        @result isNone
+        (false)
+        (@result ? doFile! true)
+        iff
+      ) eachWhile
+      @doFile
+  ) iff
+end
+
+# getTestFiles (str:target [str] -- [str])
+# mytarget.ext1.ext2
+# Returns:
+# default.ext1.ext2.do
+# default.ext2.do
+# default.do
+def getTestFiles (str -- )
+    "." split splitTarget!
+    @splitTarget len seq (1 +) map # [1 2 3]
+    ( i! ["default"] @splitTarget @i skip extend "." join ".do" + )
+    map
+end
+
+# tryAllParentDirs (str:fullDir str:file -- Maybe str)
+def tryAllParentDirs ( -- )
+    file! startDir!
+    @startDir toPath @file toPath / testFile!
+    @testFile isFile
+    (@testFile just)
+    (
+        @startDir dirname newDir!
+        @startDir toPath @newDir toPath =
+        (none)
+        (@newDir @startDir tryAllParentDirs)
+        iff
+    )
+    iff
 end
 
 # record_prereq_() {
@@ -49,10 +99,10 @@ end
 
 def recordPrereq (str --)
     prereq!
-    $".redo/{$REDOPARENT}.prereqs.build" prereqBuild!
 
     $REDOPARENT? (
         $REDOPARENT '' != (
+            $".redo/{$REDOPARENT}.prereqs.build" prereqBuild!
             (
                 @prereqBuild isFile
                 (
@@ -61,37 +111,42 @@ def recordPrereq (str --)
                 )
                 iff
                 @prereq wl
-            ) $"{@prereqBuild}[new]" > x
-            $"{@prereqBuild}[new]"$ @prereqBuild mv
+            ) $"{@prereqBuild}%new%" > x
+            $"{@prereqBuild}%new%" @prereqBuild mv
         ) iff
     ) iff
 end
 
 def handleTarget (str --)
+    true debug!
+
     target!
     $".redo/{@target dirname}" mkdirp
 
     $".redo/{@target}.uptodate" isFile
     (@target recordPrereq)
     (
+        @debug ($"Determining {@target} file type because .redo/{@target}.uptodate doesn't exist.." wle) iff
+
         # Determine file type
         $".redo/{@target}.type" isFile
         ($".redo/{@target}.type" readFile trim type!)
         (
-            @target isFile ("s") ("t") iff type!
+            @target findDoFile isNone ("s") ("t") iff type!
             @type $"{@target}.type" record
         ) iff
 
+        @debug ($"Determined {@target} file type = '{@type}'.." wle) iff
 
-        "n" upToDate!
+        "n" uptodate!
         @type "s" =
         (
             # Check MD5 checksum
             @target isFile (
-                @target toPath md5 newMd5!
+                @target toPath md5 newmd5!
                 $".redo/{@target}.md5" isFile (
-                    $".redo/{@target}.md5" readFile trim oldMd5!
-                    @newmd5 @oldmd5 = ("y" @uptodate) iff
+                    $".redo/{@target}.md5" readFile trim oldmd5!
+                    @newmd5 @oldmd5 = ("y" uptodate!) iff
                 )
                 (
                     $".redo/{@target}.nonexist" isFile ($".redo/{@target}.nonexist" rm) iff
@@ -100,6 +155,7 @@ def handleTarget (str --)
                 @newmd5 $"{@target}.md5" record
             ) iff
 
+            @debug ($"{@target} is a source file, determined up to date = {@uptodate}.." wle) iff
             @uptodate $"{@target}.uptodate" record
             @target recordPrereq
         )
@@ -107,21 +163,29 @@ def handleTarget (str --)
             # Must be regular target file
             $".redo/{@target}.prereqs" isFile
             (
+                @debug ($"Reading prerequisites for {@target}.." wle) iff
                 "y" uptodate!
                 $".redo/{@target}.prereqs" readFile lines
                 (
                     line!
-                    true continue!
-                    @target $REDOPARENT! [redo-ifchange.msh @line]? not ($"{@target}: failed to build prerequisite {@line}" 'error' msg) iff
+                    true shouldContinue!
+                    @target $REDOPARENT! [redo-ifchange.msh @line]?
+                    @debug ($"ran redo-ifchange for prerequisite {@line}.." wle) iff
+                    not ("error" $"{@target}: failed to build prerequisite {@line}" msg) iff
 
                     $".redo/{@line}.uptodate" isFile
-                    ( $".redo/{@line}.uptodate" readFile trim "n" = (false continue!) iff )
+                    (
+                        $".redo/{@line}.uptodate" readFile trim uptodateRead!
+                        @debug ($"Prerequisite {@line} is up to date = {@uptodateRead}.." wle) iff
+                        @uptodateRead "n" = (
+                            "n" uptodate!
+                            false shouldContinue!
+                        ) iff )
                     ( "ASSERT" $"{@target}: no uptodate file for {@line}" msg 111 exit )
                     iff
-                    @continue
+                    @shouldContinue
                 )
                 eachWhile
-
             )
             iff
 
@@ -132,30 +196,38 @@ def handleTarget (str --)
                 (isFile ("n" uptodate!) iff) each
             ) iff
 
+            @debug ($"Checked prerequisites for {@target}, determined up to date = {@uptodate}.." wle) iff
+
             @uptodate "n" = (
                 # Remove old prerequisites
                 $".redo/{@target}.prereqs" rmf
                 $".redo/{@target}.prereqsnonexist" rmf
 
                 # Determine which build script to execute (rebuild it if necessary)
-                $"{@target}.do" isFile
-                (
-                    @target $REDOPARENT! [redo-ifchange.msh $"{@target}.do"];
-                    $"{@target}.do" buildFile!
-                )
-                (
-                    $"{@target dirname}/default{@target ext}.do" defaultFile!
-                    @defaultFile isFile (
-                        @target $REDOPARENT! [redo-ifchange.msh @defaultFile];
-                        # @target $REDOPARENT! [redo-ifcreate.msh $"{@target}.do"];
-                        @defaultFile buildFile!
-                    ) ("error" $"No build script found" message) iff
-                )
-                iff
+                @target findDoFile buildFile!
+                @buildFile isNone ("error" $"No build script found for target {@target}" msg) iff
+                @buildFile ? buildFile!
+                @target $REDOPARENT! [redo-ifchange.msh @buildFile];
+
+                # $"{@target}.do" isFile
+                # (
+                    # @target $REDOPARENT! [redo-ifchange.msh $"{@target}.do"];
+                    # $"{@target}.do" buildFile!
+                # )
+                # (
+                    # $"{@target dirname}/default{@target ext}.do" defaultFile!
+                    # @defaultFile isFile (
+                        # @target $REDOPARENT! [redo-ifchange.msh @defaultFile];
+                        # # @target $REDOPARENT! [redo-ifcreate.msh $"{@target}.do"];
+                        # @defaultFile buildFile!
+                    # ) ("error" $"No build script found for target {@target}" msg) iff
+                # )
+                # iff
                 $"{@target}.tmpfile" toPath outFile!
                 $"{@target}.tmpfile.stdout" toPath stdoutFile!
 
                 # Execute the build script
+                @debug ($"Executing build script {@buildFile} for target {@target}.." wle) iff
                 @target $REDOPARENT!
                 [msh
                     @buildFile
@@ -174,15 +246,15 @@ def handleTarget (str --)
                 @result
                 (
                     @outfileSize 0 > (@stdoutFile @outFile) (@outFile @stdoutFile) iff usedFile! nonUsedFile!
-                    @usedFile md5 newMd5!
+                    @usedFile md5 newmd5!
                     $".redo/{@target}.md5" isFile
                     (
-                        $".redo/{@target}.md5" readFile trim oldMd5!
+                        $".redo/{@target}.md5" readFile trim oldmd5!
                         @newmd5 @oldmd5 = ("y" uptodate!) iff
                     )
                     iff
                     @usedFile @target mv
-                    @newmd5 $".redo/{@target}.md5" record
+                    @newmd5 $"{@target}.md5" record
                     "info" $"rebuilt {@target}" msg
                     @nonUsedFile rmf
                 )
@@ -190,10 +262,7 @@ def handleTarget (str --)
                     @usedFile rmf
                     @nonUsedFile rmf
                     "error" $"failed to rebuild {@target}" msg
-                )
-                iff
-
-
+                ) iff
 
             ) iff
 
