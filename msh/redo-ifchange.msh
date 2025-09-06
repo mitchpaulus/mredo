@@ -1,5 +1,4 @@
 #!/usr/bin/env mshell
-
 # msg_() {
 #   level_="$1: "
 #   shift
@@ -97,34 +96,38 @@ end
   # esac
 # }
 
-def recordPrereq (str --)
-    prereq!
+# recordPrereq (str:prereq str:redoparent --)
+def recordPrereq (str str --)
+    redoparent! prereq!
 
-    $REDOPARENT? (
-        $REDOPARENT '' != (
-            $".redo/{$REDOPARENT}.prereqs.build" prereqBuild!
-            (
-                @prereqBuild isFile
-                (
-                    @prereqBuild readFile lines
-                    (l! @l @prereq =) filter len 0 (@prereqBuild readFile w) iff
-                )
-                iff
-                @prereq wl
-            ) $"{@prereqBuild}%new%" > x
-            $"{@prereqBuild}%new%" @prereqBuild mv
-        ) iff
+    @redoparent '' != (
+        $".redo/{@redoparent}.prereqs.build" prereqBuild!
+
+        []
+        @prereqBuild isFile
+        (
+            @prereqBuild readFile lines extend
+        )
+        iff
+
+        @prereq append
+        uniq unlines
+        $"{@prereqBuild}%new%" writeFile
+        $"{@prereqBuild}%new%" @prereqBuild mv
     ) iff
 end
 
-def handleTarget (str --)
-    true debug!
-
-    target!
+# handleTarget (str:target str:REDOPARENT --)
+def handleTarget (str str --)
+    false debug!
+    redoParent! target!
+    @debug ($"Starting Processing target {@target}.." wle) iff
     $".redo/{@target dirname}" mkdirp
 
     $".redo/{@target}.uptodate" isFile
-    (@target recordPrereq)
+    (
+        @target @redoParent recordPrereq
+    )
     (
         @debug ($"Determining {@target} file type because .redo/{@target}.uptodate doesn't exist.." wle) iff
 
@@ -157,7 +160,7 @@ def handleTarget (str --)
 
             @debug ($"{@target} is a source file, determined up to date = {@uptodate}.." wle) iff
             @uptodate $"{@target}.uptodate" record
-            @target recordPrereq
+            @target @redoParent recordPrereq
         )
         (
             # Must be regular target file
@@ -180,7 +183,8 @@ def handleTarget (str --)
                         @uptodateRead "n" = (
                             "n" uptodate!
                             false shouldContinue!
-                        ) iff )
+                        ) iff
+                    )
                     ( "ASSERT" $"{@target}: no uptodate file for {@line}" msg 111 exit )
                     iff
                     @shouldContinue
@@ -266,18 +270,27 @@ def handleTarget (str --)
 
             ) iff
 
-            $".redo/{@target}.prereqs.build" isFile ($".redo/{@target}.prereqs.build"  $".redo/{@target}.prereqs" mv) iff
+            $".redo/{@target}.prereqs.build"   isFile ($".redo/{@target}.prereqs.build"  $".redo/{@target}.prereqs" mv) iff
             $".redo/{@target}.prereqsne.build" isFile ($".redo/{@target}.prereqsne.build"  $".redo/{@target}.prereqsne" mv) iff
 
-            @target recordPrereq
+            @target @redoParent recordPrereq
             @uptodate $"{@target}.uptodate" record
         )
         iff
     )
     iff
+    @debug ($"Ending Processing target {@target}.." wle) iff
 end
 
-args (handleTarget) each
+# $"Handling targets: {args str}" wle
+
+$REDOPARENT?
+($REDOPARENT)
+('')
+iff
+thisParent!
+
+args (@thisParent handleTarget) each
 
 # for i in "$@"; do
   # [ -d .redo/"`dirname $i`" ] || mkdir .redo/"`dirname $i`"

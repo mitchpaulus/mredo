@@ -1,2 +1,2 @@
 #!/usr/bin/env mshell
-"Target contents2" wl
+"Target contents new 2" wl
