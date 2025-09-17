@@ -74,7 +74,7 @@ def tryAllParentDirs ( -- )
         @startDir dirname newDir!
         @startDir toPath @newDir toPath =
         (none)
-        (@newDir @startDir tryAllParentDirs)
+        (@newDir @file tryAllParentDirs)
         iff
     )
     iff
@@ -243,13 +243,18 @@ def handleTarget (str str --)
                 @outFile fileSize 0 maybe outfileSize!
                 @stdoutFile fileSize 0 maybe stdoutSize!
                 # You should not write to stdout and $3 at the same time
-                @outfileSize 0 > @stdoutSize 0 > and (255 result!) iff
+                @outfileSize 0 > @stdoutSize 0 > and (
+                    "info" $"{@buildFile} wrote to $3 and stdout" msg
+                    255 result!
+                ) iff
 
                 @result $"{@target}.result" record
 
+                @debug ($"Build script {@buildFile} for target {@target} completed with result {@result}.." wle) iff
+                @outfileSize 0 > (@stdoutFile @outFile) (@outFile @stdoutFile) iff usedFile! nonUsedFile!
+
                 @result
                 (
-                    @outfileSize 0 > (@stdoutFile @outFile) (@outFile @stdoutFile) iff usedFile! nonUsedFile!
                     @usedFile md5 newmd5!
                     $".redo/{@target}.md5" isFile
                     (
