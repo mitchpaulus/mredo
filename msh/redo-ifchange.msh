@@ -44,7 +44,7 @@ def findDoFile (str -- str)
         f! @dir @f tryAllParentDirs result!
         @result isNone
         (false)
-        (@result ? doFile! true)
+        (@result doFile! true)
         iff
       ) eachWhile
       @doFile
@@ -119,10 +119,10 @@ end
 
 # handleTarget (str:target str:REDOPARENT --)
 def handleTarget (str str --)
-    false debug!
+    true debug!
     redoParent! target!
     @debug ($"Starting Processing target {@target}.." wle) iff
-    $".redo/{@target dirname}" mkdirp
+    $".redo/{@target dirname removeWindowsVolumePrefix}" mkdirp
 
     $".redo/{@target}.uptodate" isFile
     (

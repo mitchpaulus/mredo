@@ -19,4 +19,4 @@ end
 
 `.redo` mkdirp
 [ '^.*.uptodate$' '^.*.prereqs.build$' '^.*.prereqsne.build$' '^.*type$' ] (toRm) each
-['redo-ifchange.msh' args :0:]!
+['redo-ifchange.msh' args]!
