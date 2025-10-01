@@ -117,10 +117,9 @@ def recordPrereq (str str --)
     ) iff
 end
 
-# handleTarget (str:target str:REDOPARENT --)
-def handleTarget (str str --)
-    true debug!
-    redoParent! target!
+# handleTarget (str:target str:REDOPARENT bool: debug --)
+def handleTarget (str str bool --)
+    debug! redoParent! target!
     @debug ($"Starting Processing target {@target}.." wle) iff
     $".redo/{@target dirname removeWindowsVolumePrefix}" mkdirp
 
@@ -295,7 +294,22 @@ $REDOPARENT?
 iff
 thisParent!
 
-args (@thisParent handleTarget) each
+false debug!
+[] targets!
+
+args args!
+
+@args reverse
+(
+    @args pop arg!
+    @arg isNone (break) iff
+    @arg? "-d" =
+    (true debug!)
+    (@targets @arg? append drop)
+    iff
+) loop
+
+@targets (@thisParent @debug handleTarget) each
 
 # for i in "$@"; do
   # [ -d .redo/"`dirname $i`" ] || mkdir .redo/"`dirname $i`"
