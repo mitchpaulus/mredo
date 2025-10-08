@@ -1,0 +1,19 @@
+strict digraph redoifchange {
+    determineType [label="Determine Type, source or target"];
+
+    checkForUpToDate [label="Check if already marked as up to date"];
+
+    determineType -> checkForUpToDate;
+
+    checkForPrereqsFile [label="Check for known prerequisites"];
+
+    checkHash [label="Check hash, mark up to date"]
+    recordHash [label="Record Hash"]
+    recordAsPrereq [label="Record as Prerequisite"];
+
+    checkForUpToDate -> checkForPrereqsFile [label="Target"];
+    checkForUpToDate -> checkHash [label="Source"];
+
+    checkHash -> recordHash;
+    recordHash -> recordAsPrereq;
+}

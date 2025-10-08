@@ -163,41 +163,47 @@ def handleTarget (str str bool --)
         )
         (
             # Must be regular target file
-            $".redo/{@target}.prereqs" isFile
+            "y" uptodate!
+            @target isFile
             (
-                @debug ($"Reading prerequisites for {@target}.." wle) iff
-                "y" uptodate!
-                $".redo/{@target}.prereqs" readFile lines
+                $".redo/{@target}.prereqs" isFile
                 (
-                    line!
-                    true shouldContinue!
-                    @target $REDOPARENT! [redo-ifchange.msh @line]?
-                    @debug ($"ran redo-ifchange for prerequisite {@line}.." wle) iff
-                    not ("error" $"{@target}: failed to build prerequisite {@line}" msg) iff
-
-                    $".redo/{@line}.uptodate" isFile
+                    @debug ($"Reading prerequisites for {@target}.." wle) iff
+                    # "y" uptodate!
+                    $".redo/{@target}.prereqs" readFile lines
                     (
-                        $".redo/{@line}.uptodate" readFile trim uptodateRead!
-                        @debug ($"Prerequisite {@line} is up to date = {@uptodateRead}.." wle) iff
-                        @uptodateRead "n" = (
-                            "n" uptodate!
-                            false shouldContinue!
-                        ) iff
-                    )
-                    ( "ASSERT" $"{@target}: no uptodate file for {@line}" msg 111 exit )
-                    iff
-                    @shouldContinue
-                )
-                eachWhile
-            )
-            iff
+                        line!
+                        true shouldContinue!
+                        @target $REDOPARENT! [redo-ifchange.msh @line]?
+                        @debug ($"ran redo-ifchange for prerequisite {@line}.." wle) iff
+                        not ("error" $"{@target}: failed to build prerequisite {@line}" msg) iff
 
-            # Check nonexistent prerequisites
-            $".redo/{@target}.prereqsne" isFile
-            (
-                $".redo/{@target}.prereqsne" readFile lines
-                (isFile ("n" uptodate!) iff) each
-            ) iff
+                        $".redo/{@line}.uptodate" isFile
+                        (
+                            $".redo/{@line}.uptodate" readFile trim uptodateRead!
+                            @debug ($"Prerequisite {@line} is up to date = {@uptodateRead}.." wle) iff
+                            @uptodateRead "n" = (
+                                "n" uptodate!
+                                false shouldContinue!
+                            ) iff
+                        )
+                        ( "ASSERT" $"{@target}: no uptodate file for {@line}" msg 111 exit )
+                        iff
+                        @shouldContinue
+                    )
+                    eachWhile
+                )
+                iff
+
+                # Check nonexistent prerequisites
+                $".redo/{@target}.prereqsne" isFile
+                (
+                    $".redo/{@target}.prereqsne" readFile lines
+                    (isFile ("n" uptodate!) iff) each
+                ) iff
+            )
+            ("n" uptodate!)
+            iff
 
             @debug ($"Checked prerequisites for {@target}, determined up to date = {@uptodate}.." wle) iff
 
@@ -234,9 +240,9 @@ def handleTarget (str str bool --)
                 @target $REDOPARENT!
                 [msh
                     @buildFile
-                    @target
-                    @target stem
-                    @outFile
+                    @target # $1
+                    @target stem # $2
+                    @outFile # $3
                 ] @stdoutFile > ? result!
 
                 @outFile fileSize 0 maybe outfileSize!
@@ -252,6 +258,8 @@ def handleTarget (str str bool --)
                 @debug ($"Build script {@buildFile} for target {@target} completed with result {@result}.." wle) iff
                 @outfileSize 0 > (@stdoutFile @outFile) (@outFile @stdoutFile) iff usedFile! nonUsedFile!
 
+                @debug ($"Used File: {@usedFile}\nNon Used File:{@nonUsedFile}\n" we) iff
+
                 @result
                 (
                     @usedFile md5 newmd5!
@@ -261,6 +269,8 @@ def handleTarget (str str bool --)
                         @newmd5 @oldmd5 = ("y" uptodate!) iff
                     )
                     iff
+
+                    @debug ($"Moving {@usedFile} to {@target}.." wle) iff
                     @usedFile @target mv
                     @newmd5 $"{@target}.md5" record
                     "info" $"rebuilt {@target}" msg
