@@ -29,6 +29,11 @@ base_sql=$(sql_quote "$workdir")
 cp "$fixture_dir/target.txt.do" "$workdir/"
 cp "$fixture_dir/target2.txt.do" "$workdir/"
 cp "$fixture_dir/target2.msh" "$workdir/"
+cat >"$workdir/all.do" <<'EOF'
+#!/usr/bin/env mshell
+[redo-ifchange.msh target2.txt]!
+"all" wl
+EOF
 
 run_redo() {
   (
@@ -52,9 +57,11 @@ empty_root_list=$(XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root 
 expect_eq "$empty_root_list" "" "root list after removal"
 XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root "$workdir" >/dev/null
 
-run_redo target2.txt 2>"$workdir/first.err"
+run_redo 2>"$workdir/first.err"
+all_output=$(cat "$workdir/all")
+expect_eq "$all_output" "all" "default all target output"
 initial_output=$(cat "$workdir/target2.txt")
-expect_eq "$initial_output" $'Target contents new 2\nNEW LINE2' "initial build output"
+expect_eq "$initial_output" $'Target contents new 4\nNEW LINE2' "initial build output"
 
 initial_deps=$(db_query "select group_concat(source, '|') from (select source from Deps where base = '$base_sql' and target = 'target2.txt' and phase = 'stable' order by source);")
 expect_eq "$initial_deps" "target.txt|target2.msh|target2.txt.do" "stable deps after first build"
@@ -67,6 +74,22 @@ fi
 clean_uptodate=$(db_query "select uptodate from Files where base = '$base_sql' and name = 'target2.txt';")
 expect_eq "$clean_uptodate" "y" "target2.txt uptodate after clean rebuild"
 
+mkdir -p "$workdir/nested"
+cp "$fixture_dir/target.txt.do" "$workdir/nested/"
+cp "$fixture_dir/target2.txt.do" "$workdir/nested/"
+cp "$fixture_dir/target2.msh" "$workdir/nested/"
+(
+  cd "$workdir/nested"
+  XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" target2.txt >/dev/null 2>"$workdir/nested.err"
+)
+nested_output=$(cat "$workdir/nested/target2.txt")
+expect_eq "$nested_output" $'Target contents new 4\nNEW LINE2' "nested target output under project root"
+nested_err=$(cat "$workdir/nested.err")
+case "$nested_err" in
+  *"rebuilt nested/target2.txt"*) ;;
+  *) fail "nested target under project root should rebuild the nested target" ;;
+esac
+
 mkdir "$workdir/subdir"
 (
   cd "$workdir/subdir"
@@ -76,11 +99,22 @@ if [[ -s "$workdir/subdir.err" ]]; then
   fail "subdirectory invocation should resolve to the same target without rebuilding"
 fi
 
+printf '%s\n' '#!/usr/bin/env mshell' '"Target contents from do change" wl' >"$workdir/target.txt.do"
+
+run_redo target2.txt 2>"$workdir/do-change.err"
+do_change_output=$(cat "$workdir/target2.txt")
+expect_eq "$do_change_output" $'Target contents from do change\nNEW LINE2' "rebuild output after target do-file change"
+
+do_change_err=$(cat "$workdir/do-change.err")
+if [[ "$do_change_err" != *"rebuilt target.txt"* ]] || [[ "$do_change_err" != *"rebuilt target2.txt"* ]]; then
+  fail "expected both target.txt and target2.txt to rebuild after target do-file change"
+fi
+
 printf '%s\n' '#!/usr/bin/env mshell' '`target.txt` readFile w' '"UPDATED" wl' >"$workdir/target2.msh"
 
 run_redo target2.txt 2>"$workdir/third.err"
 third_output=$(cat "$workdir/target2.txt")
-expect_eq "$third_output" $'Target contents new 2\nUPDATED' "incremental rebuild output"
+expect_eq "$third_output" $'Target contents from do change\nUPDATED' "incremental rebuild output"
 
 third_err=$(cat "$workdir/third.err")
 case "$third_err" in
@@ -89,6 +123,19 @@ case "$third_err" in
 esac
 
 changed_uptodate=$(db_query "select uptodate from Files where base = '$base_sql' and name = 'target2.txt';")
-expect_eq "$changed_uptodate" "n" "target2.txt uptodate after dependency change"
+expect_eq "$changed_uptodate" "n" "target2.txt uptodate after dependency change rebuild"
+
+set +e
+missing_output=$( (
+  cd "$workdir"
+  XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" aasdfasdfasdf
+) 2>&1 )
+missing_rc=$?
+set -e
+expect_eq "$missing_rc" "111" "missing target exit code"
+case "$missing_output" in
+  *"No such target and no build script found for aasdfasdfasdf"*) ;;
+  *) fail "missing target should report a clear error" ;;
+esac
 
 printf 'smoke: ok\n'

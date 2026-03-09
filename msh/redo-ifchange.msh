@@ -343,7 +343,15 @@ def handleTarget (str str bool --)
         @target "type" fileValue type!
         @type len 0 = if
             @target findDoFile isNone if
-                "s" type!
+                @target isFile if
+                    "s" type!
+                else
+                    @redoParent '' = if
+                        "error" $"No such target and no build script found for {@target}" msg
+                    else
+                        "s" type!
+                    end
+                end
             else
                 "t" type!
             end
@@ -409,23 +417,29 @@ def handleTarget (str str bool --)
                     "error" $"{@target}: failed to build prerequisite {@buildFile}" msg
                 end
 
-                $"{@target}.tmpfile" toPath outFile!
-                $"{@target}.tmpfile.stdout" toPath stdoutFile!
+                @target absPath str targetAbs!
+                @targetAbs dirname str targetDir!
+                @buildFile absPath str buildFileAbs!
+                $"{@targetAbs}.tmpfile" outFile!
+                $"{@targetAbs}.tmpfile.stdout" stdoutFile!
 
                 @debug if
                     $"Executing build script {@buildFile} for target {@target}.." wle
                 end
+                `.` absPath str oldDir!
+                @targetDir cd
                 @target $REDOPARENT!
                 $REDO_BASE $REDO_BASE!
                 $REDO_DB $REDO_DB!
-                $REDO_BASE $REDO_STARTDIR!
+                @targetDir $REDO_STARTDIR!
                 "" $REDO_TOPLEVEL!
                 [msh
-                    @buildFile
+                    @buildFileAbs
                     @target
-                    @target stem
+                    @target basename stem
                     @outFile
                 ] @stdoutFile > ? result!
+                @oldDir cd
 
                 @outFile fileSize 0 maybe outfileSize!
                 @stdoutFile fileSize 0 maybe stdoutSize!
@@ -448,7 +462,7 @@ def handleTarget (str str bool --)
 
                 @result
                 if
-                    @usedFile md5 newmd5!
+                    @usedFile toPath md5 newmd5!
                     @target "md5" fileValue oldmd5!
                     @oldmd5 len 0 > if
                         @newmd5 @oldmd5 = if
@@ -459,7 +473,7 @@ def handleTarget (str str bool --)
                     @debug if
                         $"Moving {@usedFile} to {@target}.." wle
                     end
-                    @usedFile @target mv
+                    @usedFile @targetAbs mv
                     @target "md5" @newmd5 setFileValue
                     "info" $"rebuilt {@target}" msg
                     @nonUsedFile rmf
@@ -515,6 +529,7 @@ dbDataDir redoDataDir!
 $"{@redoDataDir}/redo.sqlite3" redoDb!
 @redoBase $REDO_BASE!
 @redoDb $REDO_DB!
+@redoBase cd
 
 ensureDb
 

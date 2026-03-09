@@ -220,8 +220,10 @@ $"{@redoDataDir}/redo.sqlite3" redoDb!
 ensureDb
 
 args cliArgs!
+false usedDefaultTarget!
 @cliArgs len 0 = if
-    "error" "missing target" msg
+    ['all'] cliArgs!
+    true usedDefaultTarget!
 end
 
 @cliArgs 0 nth firstArg!
@@ -277,6 +279,10 @@ else
     @currentDir $REDO_STARTDIR!
     "1" $REDO_TOPLEVEL!
     @projectRoot cd
-    ['redo-ifchange.msh' args]!
+    @usedDefaultTarget if
+        ['redo-ifchange.msh' 'all']!
+    else
+        ['redo-ifchange.msh' args]!
+    end
 end
 end
