@@ -14,12 +14,16 @@ end
 def printHelp ( -- )
     "Usage: redo.msh [TARGET]..." wl
     "Usage: redo.msh root <PROJECT_ROOT>" wl
+    "Usage: redo.msh root list" wl
+    "Usage: redo.msh root remove <PROJECT_ROOT>" wl
     "" wl
     "Options:" wl
     "  -h, --help   Show this help text" wl
     "" wl
     "Commands:" wl
     "  root         Register a project root in the SQLite database" wl
+    "  root list    List registered project roots" wl
+    "  root remove  Remove a registered project root" wl
 end
 
 def isHelpArg (str -- bool)
@@ -120,6 +124,16 @@ def sqlRead (str -- str)
     ['sqlite3' '-batch' '-noheader' dbPath] swap append oc;
 end
 
+def sqlLines (str -- [str])
+    sqlRead out!
+    @out trim trimmed!
+    @trimmed len 0 = if
+        []
+    else
+        @out lines
+    end
+end
+
 def ensureDb ( --)
     "CREATE TABLE IF NOT EXISTS Schema (version TEXT NOT NULL PRIMARY KEY);" sqlExec
     "CREATE TABLE IF NOT EXISTS Files (base TEXT NOT NULL, name TEXT NOT NULL, type TEXT, md5 TEXT, uptodate TEXT, result TEXT, PRIMARY KEY (base, name));" sqlExec
@@ -181,6 +195,24 @@ def registerProjectRoot (str --)
     "info" $"registered project root {@root}" msg
 end
 
+def removeProjectRoot (str --)
+    rawRoot!
+    @rawRoot absPath root!
+    @root sqlQuote rootSql!
+    $"SELECT COUNT(*) FROM ProjectRoots WHERE root = {@rootSql};" sqlRead trim existingCount!
+    @existingCount "0" = if
+        "info" $"project root was not registered {@root}" msg
+    else
+        $"DELETE FROM ProjectRoots WHERE root = {@rootSql};" sqlExec
+        "info" $"removed project root {@root}" msg
+    end
+end
+
+def listProjectRoots ( -- )
+    "SELECT root FROM ProjectRoots ORDER BY root;" sqlLines
+    (wl) each
+end
+
 dbDataDir redoDataDir!
 @redoDataDir mkdirp
 $"{@redoDataDir}/redo.sqlite3" redoDb!
@@ -198,13 +230,35 @@ end
 else
     @firstArg "root" =
 if
-    @cliArgs len 2 != if
-        "error" "usage: redo.msh root /path/to/a/project/root" msg
+    @cliArgs len 2 < if
+        "error" "usage: redo.msh root /path/to/a/project/root|list|remove /path/to/a/project/root" msg
     end
     @cliArgs 1 nth isHelpArg if
         printHelp
     else
-    @cliArgs 1 nth registerProjectRoot
+    @cliArgs 1 nth secondArg!
+    @secondArg "list" = if
+        @cliArgs len 2 != if
+            "error" "usage: redo.msh root list" msg
+        end
+        listProjectRoots
+    else
+        @secondArg "remove" = if
+            @cliArgs len 3 != if
+                "error" "usage: redo.msh root remove /path/to/a/project/root" msg
+            end
+            @cliArgs 2 nth isHelpArg if
+                printHelp
+            else
+                @cliArgs 2 nth removeProjectRoot
+            end
+        else
+            @cliArgs len 2 != if
+                "error" "usage: redo.msh root /path/to/a/project/root" msg
+            end
+            @secondArg registerProjectRoot
+        end
+    end
     end
 else
     `.` absPath str currentDir!

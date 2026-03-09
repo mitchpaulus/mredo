@@ -42,6 +42,15 @@ db_query() {
 }
 
 XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root "$workdir" >/dev/null
+root_list=$(XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root list)
+expect_eq "$root_list" "$workdir" "registered root list"
+(
+  cd "$workdir"
+  XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root remove . >/dev/null
+)
+empty_root_list=$(XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root list)
+expect_eq "$empty_root_list" "" "root list after removal"
+XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root "$workdir" >/dev/null
 
 run_redo target2.txt 2>"$workdir/first.err"
 initial_output=$(cat "$workdir/target2.txt")
