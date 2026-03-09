@@ -1,22 +1,141 @@
 #!/usr/bin/env mshell
 
-#!/bin/sh
-#
-# Alan Grosskurth
-# http://grosskurth.ca/xredo/20070117/redo
-# Public domain
-#
-
-# [ -d .redo ] || mkdir .redo
-# find .redo -name '*.uptodate' -exec rm -f '{}' \;
-# find .redo -name '*.prereqs.build' -exec rm -f '{}' \;
-# find .redo -name '*.prereqsne.build' -exec rm -f '{}' \;
-# redo-ifchange it
-
-def toRm (str -- str)
-  glob! ['fd' @glob `.redo`] o ! (rm) each
+def msg (str str --)
+    message! level!
+    @level "info" startsWith if
+        "" level!
+    end
+    $"redo: {@level} {@message}" wle
+    @level "error" startsWith if
+        111 exit
+    end
 end
 
-`.redo` mkdirp
-[ '^.*.uptodate$' '^.*.prereqs.build$' '^.*.prereqsne.build$' '^.*type$' ] (toRm) each
-['redo-ifchange.msh' args]!
+def dbDataDir ( -- str)
+    $LOCALAPPDATA?
+    if
+        $"{$LOCALAPPDATA}/redo-msh"
+    else
+        $XDG_DATA_HOME?
+        if
+            $"{$XDG_DATA_HOME}/redo-msh"
+        else
+            $"{$HOME}/.local/share/redo-msh"
+        end
+    end
+end
+
+def sqlQuote (str -- str)
+    value!
+    @value "'" "''" findReplace escaped!
+    "'" @escaped + "'" +
+end
+
+def dbPath ( -- str)
+    $REDO_DB
+end
+
+def sqlExec (str --)
+    sql!
+    ['sqlite3' '-batch' dbPath @sql] ? rc!
+    @rc 0 != if
+        "error" $"sqlite3 failed with exit code {@rc}" msg
+    end
+end
+
+def sqlRead (str -- str)
+    ['sqlite3' '-batch' '-noheader' dbPath] swap append oc;
+end
+
+def ensureDb ( --)
+    "CREATE TABLE IF NOT EXISTS Schema (version TEXT NOT NULL PRIMARY KEY);" sqlExec
+    "CREATE TABLE IF NOT EXISTS Files (base TEXT NOT NULL, name TEXT NOT NULL, type TEXT, md5 TEXT, uptodate TEXT, result TEXT, PRIMARY KEY (base, name));" sqlExec
+    "CREATE TABLE IF NOT EXISTS Deps (base TEXT NOT NULL, target TEXT NOT NULL, source TEXT NOT NULL, kind TEXT NOT NULL, phase TEXT NOT NULL, PRIMARY KEY (base, target, source, kind, phase));" sqlExec
+    "CREATE TABLE IF NOT EXISTS ProjectRoots (root TEXT NOT NULL PRIMARY KEY);" sqlExec
+    "SELECT version FROM Schema LIMIT 1;" sqlRead trim schemaVersion!
+    @schemaVersion len 0 = if
+        "INSERT INTO Schema (version) VALUES ('1');" sqlExec
+        "1" schemaVersion!
+    end
+    @schemaVersion "1" != if
+        "error" $"Unsupported schema version '{@schemaVersion}' in {$REDO_DB}" msg
+    end
+end
+
+def hasGitDir (str -- bool)
+    dir!
+    @dir toPath `.git` / isDir
+end
+
+def registeredProjectRoot (str -- bool)
+    dir!
+    @dir sqlQuote dirSql!
+    $"SELECT COUNT(*) FROM ProjectRoots WHERE root = {@dirSql};" sqlRead trim count!
+    @count "0" !=
+end
+
+def isProjectRoot (str -- bool)
+    dir!
+    @dir registeredProjectRoot
+    @dir hasGitDir
+    or
+end
+
+def findProjectRoot (str -- str bool)
+    dir!
+    @dir isProjectRoot
+    if
+        @dir true
+    else
+        @dir dirname parent!
+        @dir toPath @parent toPath =
+        if
+            "" false
+        else
+            @parent findProjectRoot
+        end
+    end
+end
+
+def registerProjectRoot (str --)
+    rawRoot!
+    @rawRoot absPath root!
+    @root isDir not if
+        "error" $"Project root does not exist: {@root}" msg
+    end
+    @root sqlQuote rootSql!
+    $"INSERT OR IGNORE INTO ProjectRoots (root) VALUES ({@rootSql});" sqlExec
+    "info" $"registered project root {@root}" msg
+end
+
+dbDataDir redoDataDir!
+@redoDataDir mkdirp
+$"{@redoDataDir}/redo.sqlite3" redoDb!
+@redoDb $REDO_DB!
+ensureDb
+
+args cliArgs!
+@cliArgs len 0 = if
+    "error" "missing target" msg
+end
+
+@cliArgs 0 nth firstArg!
+@firstArg "root" =
+if
+    @cliArgs len 2 != if
+        "error" "usage: redo.msh root /path/to/a/project/root" msg
+    end
+    @cliArgs 1 nth registerProjectRoot
+else
+    `.` absPath currentDir!
+    @currentDir findProjectRoot foundProjectRoot! projectRoot!
+    @foundProjectRoot not if
+        "error" $"No project root found for {@currentDir}. Add one with: redo.msh root {@currentDir}" msg
+    end
+
+    @projectRoot $REDO_BASE!
+    @currentDir $REDO_STARTDIR!
+    "1" $REDO_TOPLEVEL!
+    @projectRoot cd
+    ['redo-ifchange.msh' args]!
+end
