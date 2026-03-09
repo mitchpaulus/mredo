@@ -11,6 +11,79 @@ def msg (str str --)
     end
 end
 
+def printHelp ( -- )
+    "Usage: redo.msh [TARGET]..." wl
+    "Usage: redo.msh root <PROJECT_ROOT>" wl
+    "" wl
+    "Options:" wl
+    "  -h, --help   Show this help text" wl
+    "" wl
+    "Commands:" wl
+    "  root         Register a project root in the SQLite database" wl
+end
+
+def isHelpArg (str -- bool)
+    arg!
+    @arg "-h" = @arg "--help" = or
+end
+
+def candidateProjectRoots (str -- [str])
+    dir!
+    @dir dirname str parent!
+    @dir toPath @parent toPath =
+    if
+        [] roots!
+        @roots @dir append drop
+        @roots
+    else
+        @parent candidateProjectRoots parents!
+        [] roots!
+        @roots @dir append drop
+        @roots @parents extend
+    end
+end
+
+def printCandidateProjectRoots ([str] int --)
+    index! roots!
+    @roots len 0 > if
+        @roots 0 nth root!
+        $"{@index}. {@root}" wl
+        @roots 1: @index 1 + printCandidateProjectRoots
+    end
+end
+
+def selectCandidateProjectRoot ([str] str int -- str bool)
+    index! answer! roots!
+    @roots len 0 = if
+        "" false
+    else
+        @index str indexStr!
+        @answer @indexStr = if
+            @roots 0 nth true
+        else
+            @roots 1: @answer @index 1 + selectCandidateProjectRoot
+        end
+    end
+end
+
+def promptForProjectRoot ([str] -- str bool)
+    roots!
+    @roots 1 printCandidateProjectRoots
+    @roots len str maxIndex!
+    $"Do you want to set one of these directories as a project root directory (1-{@maxIndex}, blank cancels)? " prompt answer!
+    @answer len 0 = if
+        "" false
+    else
+        @roots @answer 1 selectCandidateProjectRoot foundRoot! root!
+        @foundRoot if
+            @root true
+        else
+            "Invalid selection." wle
+            @roots promptForProjectRoot
+        end
+    end
+end
+
 def dbDataDir ( -- str)
     $LOCALAPPDATA?
     if
@@ -120,17 +193,30 @@ args cliArgs!
 end
 
 @cliArgs 0 nth firstArg!
-@firstArg "root" =
+@firstArg isHelpArg if
+    printHelp
+else
+    @firstArg "root" =
 if
     @cliArgs len 2 != if
         "error" "usage: redo.msh root /path/to/a/project/root" msg
     end
+    @cliArgs 1 nth isHelpArg if
+        printHelp
+    else
     @cliArgs 1 nth registerProjectRoot
+    end
 else
-    `.` absPath currentDir!
+    `.` absPath str currentDir!
     @currentDir findProjectRoot foundProjectRoot! projectRoot!
     @foundProjectRoot not if
-        "error" $"No project root found for {@currentDir}. Add one with: redo.msh root {@currentDir}" msg
+        @currentDir candidateProjectRoots promptForProjectRoot selectedRootSet! selectedRoot!
+        @selectedRootSet if
+            @selectedRoot registerProjectRoot
+            @selectedRoot projectRoot!
+        else
+            "error" $"No project root found for {@currentDir}. Add one with: redo.msh root {@currentDir}" msg
+        end
     end
 
     @projectRoot $REDO_BASE!
@@ -138,4 +224,5 @@ else
     "1" $REDO_TOPLEVEL!
     @projectRoot cd
     ['redo-ifchange.msh' args]!
+end
 end

@@ -11,6 +11,31 @@ def msg (str str --)
     end
 end
 
+def printHelp ( -- )
+    "Usage: redo-ifchange.msh [-d] TARGET..." wl
+    "" wl
+    "Options:" wl
+    "  -d           Enable debug logging" wl
+    "  -h, --help   Show this help text" wl
+end
+
+def isHelpArg (str -- bool)
+    arg!
+    @arg "-h" = @arg "--help" = or
+end
+
+def checkHelpArgs ([str] --)
+    argsToCheck!
+    @argsToCheck len 0 > if
+        @argsToCheck 0 nth arg!
+        @arg isHelpArg if
+            printHelp
+            0 exit
+        end
+        @argsToCheck 1: checkHelpArgs
+    end
+end
+
 def dbDataDir ( -- str)
     $LOCALAPPDATA?
     if
@@ -492,6 +517,9 @@ $"{@redoDataDir}/redo.sqlite3" redoDb!
 @redoDb $REDO_DB!
 
 ensureDb
+
+args checkHelpArgs
+
 $REDO_TOPLEVEL? if
     $REDO_TOPLEVEL "1" = if
         resetRunState
