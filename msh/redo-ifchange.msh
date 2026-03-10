@@ -21,19 +21,7 @@ end
 
 def isHelpArg (str -- bool)
     arg!
-    @arg "-h" = @arg "--help" = or
-end
-
-def checkHelpArgs ([str] --)
-    argsToCheck!
-    @argsToCheck len 0 > if
-        @argsToCheck 0 nth arg!
-        @arg isHelpArg if
-            printHelp
-            0 exit
-        end
-        @argsToCheck 1: checkHelpArgs
-    end
+    @arg "-h" = or. (@arg "--help" =) end
 end
 
 def dbDataDir ( -- str)
@@ -537,13 +525,7 @@ def processTargets ([str] str bool --)
     end
 end
 
-$REDO_BASE?
-if
-    $REDO_BASE
-else
-    `.` absPath
-end
-redoBase!
+$REDO_BASE? if $REDO_BASE else `.` absPath end redoBase!
 dbDataDir redoDataDir!
 @redoDataDir mkdirp
 $"{@redoDataDir}/redo.sqlite3" redoDb!
@@ -553,21 +535,11 @@ $"{@redoDataDir}/redo.sqlite3" redoDb!
 
 ensureDb
 
-args checkHelpArgs
+args (isHelpArg) any if printHelp 0 exit end
 
-$REDO_TOPLEVEL? if
-    $REDO_TOPLEVEL "1" = if
-        resetRunState
-    end
-end
+$REDO_TOPLEVEL? ($REDO_TOPLEVEL "1" =) and if resetRunState end
 
-$REDOPARENT?
-if
-    $REDOPARENT
-else
-    ''
-end
-thisParent!
+$REDOPARENT? if $REDOPARENT else '' end thisParent!
 
 false debug!
 [] targets!
