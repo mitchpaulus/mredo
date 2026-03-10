@@ -1,0 +1,72 @@
+#!/usr/bin/env mshell
+
+def msg (str str --)
+    message! level!
+    @level "info" startsWith if
+        "" level!
+    end
+    $"redo-always: {@level} {@message}" wle
+    @level "error" startsWith if
+        111 exit
+    end
+end
+
+def printHelp ( -- )
+    "Usage: redo-always.msh" wl
+    "" wl
+    "Mark the current target as always out of date." wl
+end
+
+def isHelpArg (str -- bool)
+    arg!
+    @arg "-h" = @arg "--help" = or
+end
+
+def sqlQuote (str -- str)
+    value!
+    @value "'" "''" findReplace escaped!
+    "'" @escaped + "'" +
+end
+
+def dbPath ( -- str)
+    $REDO_DB
+end
+
+def baseSql ( -- str)
+    $REDO_BASE sqlQuote
+end
+
+def sqlExec (str --)
+    sql!
+    ['sqlite3' '-batch' dbPath @sql] ? rc!
+    @rc 0 != if
+        "error" $"sqlite3 failed with exit code {@rc}" msg
+    end
+end
+
+def ensureDb ( --)
+    "CREATE TABLE IF NOT EXISTS Schema (version TEXT NOT NULL PRIMARY KEY);" sqlExec
+    "CREATE TABLE IF NOT EXISTS Files (base TEXT NOT NULL, name TEXT NOT NULL, type TEXT, md5 TEXT, uptodate TEXT, result TEXT, PRIMARY KEY (base, name));" sqlExec
+    "CREATE TABLE IF NOT EXISTS Deps (base TEXT NOT NULL, target TEXT NOT NULL, source TEXT NOT NULL, kind TEXT NOT NULL, phase TEXT NOT NULL, PRIMARY KEY (base, target, source, kind, phase));" sqlExec
+    "CREATE TABLE IF NOT EXISTS ProjectRoots (root TEXT NOT NULL PRIMARY KEY);" sqlExec
+end
+
+args cliArgs!
+@cliArgs len 0 > if
+    @cliArgs 0 nth isHelpArg if
+        printHelp
+        0 exit
+    end
+    "error" "redo-always.msh takes no arguments" msg
+end
+
+$REDO_BASE? not $REDO_DB? not or $REDOPARENT? not or if
+    "error" "redo-always.msh must be run from inside a .do file invoked by redo" msg
+end
+
+ensureDb
+
+baseSql baseSqlValue!
+$REDOPARENT sqlQuote targetSql!
+"'//ALWAYS'" alwaysSql!
+$"INSERT OR IGNORE INTO Deps (base, target, source, kind, phase) VALUES ({@baseSqlValue}, {@targetSql}, {@alwaysSql}, 'always', 'build');" sqlExec

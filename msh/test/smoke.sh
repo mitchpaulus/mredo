@@ -34,11 +34,21 @@ cat >"$workdir/all.do" <<'EOF'
 [redo-ifchange.msh target2.txt]!
 "all" wl
 EOF
+cat >"$workdir/always.txt.do" <<'EOF'
+#!/usr/bin/env mshell
+[redo-always.msh]!
+"always target" wl
+EOF
+cat >"$workdir/always-parent.txt.do" <<'EOF'
+#!/usr/bin/env mshell
+[redo-ifchange.msh always.txt]!
+`always.txt` readFile w
+EOF
 
 run_redo() {
   (
     cd "$workdir"
-    XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" "$@"
+    PATH="$repo_root/msh:$PATH" XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" "$@"
   )
 }
 
@@ -46,22 +56,22 @@ db_query() {
   sqlite3 "$data_home/redo-msh/redo.sqlite3" "$1"
 }
 
-XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root "$workdir" >/dev/null
-root_list=$(XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root list)
+PATH="$repo_root/msh:$PATH" XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root "$workdir" >/dev/null
+root_list=$(PATH="$repo_root/msh:$PATH" XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root list)
 expect_eq "$root_list" "$workdir" "registered root list"
 (
   cd "$workdir"
-  XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root remove . >/dev/null
+  PATH="$repo_root/msh:$PATH" XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root remove . >/dev/null
 )
-empty_root_list=$(XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root list)
+empty_root_list=$(PATH="$repo_root/msh:$PATH" XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root list)
 expect_eq "$empty_root_list" "" "root list after removal"
-XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root "$workdir" >/dev/null
+PATH="$repo_root/msh:$PATH" XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" root "$workdir" >/dev/null
 
 run_redo 2>"$workdir/first.err"
 all_output=$(cat "$workdir/all")
 expect_eq "$all_output" "all" "default all target output"
 initial_output=$(cat "$workdir/target2.txt")
-expect_eq "$initial_output" $'Target contents new 4\nNEW LINE2' "initial build output"
+expect_eq "$initial_output" $'Target contents new 2\nNEW LINE2' "initial build output"
 
 initial_deps=$(db_query "select group_concat(source, '|') from (select source from Deps where base = '$base_sql' and target = 'target2.txt' and phase = 'stable' order by source);")
 expect_eq "$initial_deps" "target.txt|target2.msh|target2.txt.do" "stable deps after first build"
@@ -74,16 +84,33 @@ fi
 clean_uptodate=$(db_query "select uptodate from Files where base = '$base_sql' and name = 'target2.txt';")
 expect_eq "$clean_uptodate" "y" "target2.txt uptodate after clean rebuild"
 
+run_redo always-parent.txt 2>"$workdir/always-first.err"
+always_parent_output=$(cat "$workdir/always-parent.txt")
+expect_eq "$always_parent_output" "always target" "initial always-parent output"
+always_first_err=$(cat "$workdir/always-first.err")
+if [[ "$always_first_err" != *"rebuilt always.txt"* ]] || [[ "$always_first_err" != *"rebuilt always-parent.txt"* ]]; then
+  fail "expected always target and parent to rebuild on first run"
+fi
+
+run_redo always-parent.txt 2>"$workdir/always-second.err"
+always_second_err=$(cat "$workdir/always-second.err")
+if [[ "$always_second_err" != *"rebuilt always.txt"* ]] || [[ "$always_second_err" != *"rebuilt always-parent.txt"* ]]; then
+  fail "expected always target and parent to rebuild on second run"
+fi
+
+always_dep=$(db_query "select group_concat(source, '|') from (select source from Deps where base = '$base_sql' and target = 'always.txt' and kind = 'always' and phase = 'stable' order by source);")
+expect_eq "$always_dep" "//ALWAYS" "redo-always stable dependency"
+
 mkdir -p "$workdir/nested"
 cp "$fixture_dir/target.txt.do" "$workdir/nested/"
 cp "$fixture_dir/target2.txt.do" "$workdir/nested/"
 cp "$fixture_dir/target2.msh" "$workdir/nested/"
 (
   cd "$workdir/nested"
-  XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" target2.txt >/dev/null 2>"$workdir/nested.err"
+  PATH="$repo_root/msh:$PATH" XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" target2.txt >/dev/null 2>"$workdir/nested.err"
 )
 nested_output=$(cat "$workdir/nested/target2.txt")
-expect_eq "$nested_output" $'Target contents new 4\nNEW LINE2' "nested target output under project root"
+expect_eq "$nested_output" $'Target contents new 2\nNEW LINE2' "nested target output under project root"
 nested_err=$(cat "$workdir/nested.err")
 case "$nested_err" in
   *"rebuilt nested/target2.txt"*) ;;
@@ -93,7 +120,7 @@ esac
 mkdir "$workdir/subdir"
 (
   cd "$workdir/subdir"
-  XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" ../target2.txt
+  PATH="$repo_root/msh:$PATH" XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" ../target2.txt
 ) 2>"$workdir/subdir.err"
 if [[ -s "$workdir/subdir.err" ]]; then
   fail "subdirectory invocation should resolve to the same target without rebuilding"
@@ -128,7 +155,7 @@ expect_eq "$changed_uptodate" "n" "target2.txt uptodate after dependency change 
 set +e
 missing_output=$( (
   cd "$workdir"
-  XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" aasdfasdfasdf
+  PATH="$repo_root/msh:$PATH" XDG_DATA_HOME="$data_home" msh "$repo_root/msh/redo.msh" aasdfasdfasdf
 ) 2>&1 )
 missing_rc=$?
 set -e

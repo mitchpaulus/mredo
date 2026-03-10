@@ -206,6 +206,16 @@ def stableDeps (str str -- [str])
     $"SELECT source FROM Deps WHERE base = {@baseSqlValue} AND target = {@targetSql} AND kind = {@kindSql} AND phase = 'stable' ORDER BY source;" sqlLines
 end
 
+def hasDep (str str str -- bool)
+    phase! kind! target!
+    baseSql baseSqlValue!
+    @target sqlQuote targetSql!
+    @kind sqlQuote kindSql!
+    @phase sqlQuote phaseSql!
+    $"SELECT COUNT(*) FROM Deps WHERE base = {@baseSqlValue} AND target = {@targetSql} AND kind = {@kindSql} AND phase = {@phaseSql};" sqlRead trim count!
+    @count "0" !=
+end
+
 def recordDep (str str str str --)
     phase! kind! target!
     source!
@@ -396,6 +406,12 @@ def handleTarget (str str bool --)
                         "n" uptodate!
                     end
                 end
+
+                @uptodate "n" != if
+                    @target "always" "stable" hasDep if
+                        "n" uptodate!
+                    end
+                end
             else
                 "n" uptodate!
             end
@@ -468,6 +484,10 @@ def handleTarget (str str bool --)
                         @newmd5 @oldmd5 = if
                             "y" uptodate!
                         end
+                    end
+
+                    @target "always" "build" hasDep if
+                        "n" uptodate!
                     end
 
                     @debug if
