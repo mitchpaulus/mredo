@@ -21,20 +21,16 @@ end
 
 def isHelpArg (str -- bool)
     arg!
-    @arg "-h" = or. (@arg "--help" =) end
+    @arg "-h" = or. @arg "--help" = end
 end
 
 def dbDataDir ( -- str)
-    $LOCALAPPDATA?
-    if
+    $LOCALAPPDATA? if
         $"{$LOCALAPPDATA}/redo-msh"
+    else* $XDG_DATA_HOME? *if
+        $"{$XDG_DATA_HOME}/redo-msh"
     else
-        $XDG_DATA_HOME?
-        if
-            $"{$XDG_DATA_HOME}/redo-msh"
-        else
-            $"{$HOME}/.local/share/redo-msh"
-        end
+        $"{$HOME}/.local/share/redo-msh"
     end
 end
 
